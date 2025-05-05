@@ -19,7 +19,7 @@ func TestBalancer(t *testing.T) {
 		t.Skip("Integration test is not enabled")
 	}
 
-	// TODO: Реалізуйте інтеграційний тест для балансувальникка.
+	// TODO: Реалізуйте інтеграційний тест для балансувальника.
 	resp, err := client.Get(fmt.Sprintf("%s/api/v1/some-data", baseAddress))
 	if err != nil {
 		t.Error(err)
@@ -28,5 +28,5 @@ func TestBalancer(t *testing.T) {
 }
 
 func BenchmarkBalancer(b *testing.B) {
-	// TODO: Реалізуйте інтеграційний бенчмарк для балансувальникка.
+	// TODO: Реалізуйте інтеграційний бенчмарк для балансувальника.
 }
