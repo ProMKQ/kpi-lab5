@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/ProMKQ/kpi-lab4/httptools"
@@ -14,21 +15,26 @@ import (
 )
 
 var (
-	port       = flag.Int("port", 8090, "load balancer port")
-	timeoutSec = flag.Int("timeout-sec", 3, "request timeout time in seconds")
-	https      = flag.Bool("https", false, "whether backends support HTTPs")
-
+	port         = flag.Int("port", 8090, "load balancer port")
+	timeoutSec   = flag.Int("timeout-sec", 3, "request timeout time in seconds")
+	https        = flag.Bool("https", false, "whether backends support HTTPs")
 	traceEnabled = flag.Bool("trace", false, "whether to include tracing information into responses")
 )
 
-var (
-	timeout     = time.Duration(*timeoutSec) * time.Second
-	serversPool = []string{
-		"server1:8080",
-		"server2:8080",
-		"server3:8080",
-	}
-)
+var timeout time.Duration
+
+type Server struct {
+	Address string
+	ConnCnt int
+	Healthy bool
+	mu      sync.Mutex
+}
+
+var serversPool = []*Server{
+	{Address: "server1:8080"},
+	{Address: "server2:8080"},
+	{Address: "server3:8080"},
+}
 
 func scheme() string {
 	if *https {
@@ -38,21 +44,25 @@ func scheme() string {
 }
 
 func health(dst string) bool {
-	ctx, _ := context.WithTimeout(context.Background(), timeout)
-	req, _ := http.NewRequestWithContext(ctx, "GET",
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET",
 		fmt.Sprintf("%s://%s/health", scheme(), dst), nil)
-	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return false
 	}
-	if resp.StatusCode != http.StatusOK {
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
 		return false
 	}
 	return true
 }
 
 func forward(dst string, rw http.ResponseWriter, r *http.Request) error {
-	ctx, _ := context.WithTimeout(r.Context(), timeout)
+	ctx, cancel := context.WithTimeout(r.Context(), timeout)
+	defer cancel()
+
 	fwdRequest := r.Clone(ctx)
 	fwdRequest.RequestURI = ""
 	fwdRequest.URL.Host = dst
@@ -84,22 +94,56 @@ func forward(dst string, rw http.ResponseWriter, r *http.Request) error {
 	}
 }
 
+func getLeastConnServer() *Server {
+	var selected *Server
+	for _, s := range serversPool {
+		s.mu.Lock()
+		if s.Healthy {
+			if selected == nil || s.ConnCnt < selected.ConnCnt {
+				selected = s
+			}
+		}
+		s.mu.Unlock()
+	}
+	return selected
+}
+
 func main() {
 	flag.Parse()
+	timeout = time.Duration(*timeoutSec) * time.Second
 
-	// TODO: Використовуйте дані про стан сервера, щоб підтримувати список тих серверів, яким можна відправляти запит.
+	// Start health check goroutines
 	for _, server := range serversPool {
-		server := server
+		s := server
 		go func() {
-			for range time.Tick(10 * time.Second) {
-				log.Println(server, "healthy:", health(server))
+			for range time.Tick(5 * time.Second) {
+				isHealthy := health(s.Address)
+				s.mu.Lock()
+				s.Healthy = isHealthy
+				s.mu.Unlock()
+				log.Println(s.Address, "healthy:", isHealthy)
 			}
 		}()
 	}
 
 	frontend := httptools.CreateServer(*port, http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-		// TODO: Реалізуйте свій алгоритм балансувальника.
-		forward(serversPool[0], rw, r)
+		server := getLeastConnServer()
+		if server == nil {
+			http.Error(rw, "No healthy servers available", http.StatusServiceUnavailable)
+			return
+		}
+
+		server.mu.Lock()
+		server.ConnCnt++
+		server.mu.Unlock()
+
+		defer func() {
+			server.mu.Lock()
+			server.ConnCnt--
+			server.mu.Unlock()
+		}()
+
+		forward(server.Address, rw, r)
 	}))
 
 	log.Println("Starting load balancer...")
