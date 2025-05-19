@@ -1,6 +1,6 @@
-# Лабораторна робота #4 з архітектури ПЗ
+# Лабораторна робота #5 з архітектури ПЗ
 
-## Варіант: 3
+## Варіант: 4
 
 ## Виконали:
 
@@ -12,4 +12,4 @@
 
 ## CI Build Status
 
-![Build Status](https://github.com/ProMKQ/kpi-lab4/actions/workflows/build.yml/badge.svg)
+![Build Status](https://github.com/ProMKQ/kpi-lab5/actions/workflows/build.yml/badge.svg)

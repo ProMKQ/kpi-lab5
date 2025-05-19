@@ -1,4 +1,4 @@
-module github.com/ProMKQ/kpi-lab4
+module github.com/ProMKQ/kpi-lab5
 
 go 1.24
 

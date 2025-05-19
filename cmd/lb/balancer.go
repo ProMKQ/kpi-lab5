@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ProMKQ/kpi-lab4/httptools"
-	"github.com/ProMKQ/kpi-lab4/signal"
+	"github.com/ProMKQ/kpi-lab5/httptools"
+	"github.com/ProMKQ/kpi-lab5/signal"
 )
 
 var (
