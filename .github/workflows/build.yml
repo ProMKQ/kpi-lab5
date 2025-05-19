@@ -1,0 +1,25 @@
+name: Run tests and benchmarks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci-docker-compose:
+    name: CI via Docker Compose
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Run tests and benchmarks
+        run: |
+          docker compose \
+            -f docker-compose.yaml \
+            -f docker-compose.test.yaml \
+            up --abort-on-container-exit --exit-code-from test
