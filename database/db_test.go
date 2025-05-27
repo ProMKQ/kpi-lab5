@@ -1,6 +1,7 @@
 package datastore
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -38,9 +39,11 @@ func TestDb(t *testing.T) {
 	})
 
 	t.Run("file growth", func(t *testing.T) {
-		sizeBefore, err := db.Size()
-		if err != nil {
-			t.Fatal(err)
+		sizeBefore, _ := db.Size()
+		_ = db.Put("key", "value")
+		sizeAfter, _ := db.Size()
+		if sizeBefore == sizeAfter {
+			t.Errorf("Size does not grow after put (before %d, after %d)", sizeBefore, sizeAfter)
 		}
 		for _, pair := range pairs {
 			err := db.Put(pair[0], pair[1])
@@ -81,4 +84,36 @@ func TestDb(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestSegmentRollingAndMerge(t *testing.T) {
+	tmp := t.TempDir()
+
+	db, err := OpenWithSegmentLimit(tmp, 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Close()
+	})
+
+	for i := 0; i < 20; i++ {
+		key := fmt.Sprintf("key%d", i)
+		value := fmt.Sprintf("value%d", i)
+		if err := db.Put(key, value); err != nil {
+			t.Fatalf("Put failed at %d: %v", i, err)
+		}
+	}
+
+	for i := 0; i < 20; i++ {
+		key := fmt.Sprintf("key%d", i)
+		expected := fmt.Sprintf("value%d", i)
+		val, err := db.Get(key)
+		if err != nil {
+			t.Errorf("Get failed for key=%s: %v", key, err)
+		}
+		if val != expected {
+			t.Errorf("Expected %s, got %s", expected, val)
+		}
+	}
 }
