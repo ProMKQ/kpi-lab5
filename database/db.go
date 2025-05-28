@@ -16,6 +16,12 @@ var ErrNotFound = fmt.Errorf("record does not exist")
 
 type hashIndex map[string]int64
 
+type writeRequest struct {
+	key   string
+	value string
+	resp  chan error
+}
+
 type Db struct {
 	out              *os.File
 	outOffset        int64
@@ -24,6 +30,44 @@ type Db struct {
 	mu               sync.Mutex
 	segmentSizeLimit int64
 	dir              string
+	muIndex          sync.RWMutex
+	writeChan        chan writeRequest
+	closeChan        chan struct{}
+}
+
+func (db *Db) writeLoop() {
+	for {
+		select {
+		case req := <-db.writeChan:
+			err := db.writeEntry(req.key, req.value)
+			req.resp <- err
+		case <-db.closeChan:
+			return
+		}
+	}
+}
+
+func (db *Db) writeEntry(key, value string) error {
+	e := entry{key: key, value: value}
+	data := e.Encode()
+
+	if db.segmentSizeLimit > 0 && db.outOffset+int64(len(data)) > db.segmentSizeLimit {
+		if err := db.rollSegment(); err != nil {
+			return err
+		}
+	}
+
+	n, err := db.out.Write(data)
+	if err != nil {
+		return err
+	}
+
+	db.muIndex.Lock()
+	db.index[key] = db.outOffset
+	db.muIndex.Unlock()
+
+	db.outOffset += int64(n)
+	return nil
 }
 
 func OpenWithSegmentLimit(dir string, limit int64) (*Db, error) {
@@ -37,11 +81,10 @@ func OpenWithSegmentLimit(dir string, limit int64) (*Db, error) {
 		index:            make(hashIndex),
 		dir:              dir,
 		segmentSizeLimit: limit,
+		writeChan:        make(chan writeRequest),
+		closeChan:        make(chan struct{}),
 	}
-	err = db.recover()
-	if err != nil && err != io.EOF {
-		return nil, err
-	}
+	go db.writeLoop()
 	return db, nil
 }
 
@@ -52,9 +95,14 @@ func Open(dir string) (*Db, error) {
 		return nil, err
 	}
 	db := &Db{
-		out:   f,
-		index: make(hashIndex),
+		out:              f,
+		index:            make(hashIndex),
+		dir:              dir,
+		segmentSizeLimit: 0,
+		writeChan:        make(chan writeRequest),
+		closeChan:        make(chan struct{}),
 	}
+	go db.writeLoop()
 	err = db.recover()
 	if err != nil && err != io.EOF {
 		return nil, err
@@ -90,11 +138,16 @@ func (db *Db) recover() error {
 }
 
 func (db *Db) Close() error {
+	if db.closeChan != nil {
+		close(db.closeChan)
+	}
 	return db.out.Close()
 }
 
 func (db *Db) Get(key string) (string, error) {
+	db.muIndex.RLock()
 	position, ok := db.index[key]
+	db.muIndex.RUnlock()
 	if !ok {
 		return "", ErrNotFound
 	}
@@ -118,26 +171,13 @@ func (db *Db) Get(key string) (string, error) {
 }
 
 func (db *Db) Put(key, value string) error {
-	db.mu.Lock()
-	defer db.mu.Unlock()
-
-	e := entry{key: key, value: value}
-	data := e.Encode()
-
-	if db.outOffset+int64(len(data)) > db.segmentSizeLimit {
-		if err := db.rollSegment(); err != nil {
-			return err
-		}
+	resp := make(chan error)
+	db.writeChan <- writeRequest{
+		key:   key,
+		value: value,
+		resp:  resp,
 	}
-
-	n, err := db.out.Write(data)
-	if err != nil {
-		return err
-	}
-
-	db.index[key] = db.outOffset
-	db.outOffset += int64(n)
-	return nil
+	return <-resp
 }
 
 func (db *Db) rollSegment() error {
