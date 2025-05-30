@@ -2,6 +2,7 @@ package datastore
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -248,4 +249,40 @@ func (db *Db) Size() (int64, error) {
 		return 0, err
 	}
 	return info.Size(), nil
+}
+
+func (db *Db) PutInt64(key string, value int64) error {
+	val := map[string]interface{}{
+		"type":  "int64",
+		"value": value,
+	}
+	bytes, err := json.Marshal(val)
+	if err != nil {
+		return err
+	}
+	return db.Put(key, string(bytes))
+}
+
+func (db *Db) GetInt64(key string) (int64, error) {
+	str, err := db.Get(key)
+	if err != nil {
+		return 0, err
+	}
+
+	var decoded map[string]interface{}
+	err = json.Unmarshal([]byte(str), &decoded)
+	if err != nil {
+		return 0, err
+	}
+
+	if decoded["type"] != "int64" {
+		return 0, fmt.Errorf("wrong type: expected int64, got %v", decoded["type"])
+	}
+
+	valFloat, ok := decoded["value"].(float64)
+	if !ok {
+		return 0, fmt.Errorf("value is not a number")
+	}
+
+	return int64(valFloat), nil
 }

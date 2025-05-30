@@ -117,3 +117,58 @@ func TestSegmentRollingAndMerge(t *testing.T) {
 		}
 	}
 }
+
+func TestPutGetInt64(t *testing.T) {
+	tmp := t.TempDir()
+
+	db, err := Open(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Close()
+	})
+
+	t.Run("put and get int64 value", func(t *testing.T) {
+		var key = "int64-key"
+		var originalValue int64 = 9876543210123
+
+		err := db.PutInt64(key, originalValue)
+		if err != nil {
+			t.Fatalf("PutInt64 failed: %v", err)
+		}
+
+		got, err := db.GetInt64(key)
+		if err != nil {
+			t.Fatalf("GetInt64 failed: %v", err)
+		}
+		if got != originalValue {
+			t.Errorf("GetInt64 = %d; want %d", got, originalValue)
+		}
+	})
+}
+
+func TestGetInt64WrongType(t *testing.T) {
+	tmp := t.TempDir()
+
+	db, err := Open(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Close()
+	})
+
+	t.Run("get int64 from wrong type", func(t *testing.T) {
+		key := "wrong-type"
+		err := db.Put(key, "just a string")
+		if err != nil {
+			t.Fatalf("Put failed: %v", err)
+		}
+
+		_, err = db.GetInt64(key)
+		if err == nil {
+			t.Errorf("Expected error when getting int64 from string, got none")
+		}
+	})
+}

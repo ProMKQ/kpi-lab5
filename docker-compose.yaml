@@ -31,3 +31,14 @@ services:
       - servers
     ports:
       - "8082:8080"
+
+  db:
+    build: .
+    command: "go run ./cmd/db"
+    networks:
+      - servers
+    ports:
+      - "8083:8081"
+    volumes:
+      - ./db-data:/app/db-data
+
