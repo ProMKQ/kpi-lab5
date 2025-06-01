@@ -2,7 +2,7 @@ package datastore
 
 import (
 	"bufio"
-	"encoding/json"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -11,15 +11,21 @@ import (
 	"sync"
 )
 
-const outFileName = "current-data"
+const (
+	outFileName = "current-data"
+	typeString  = "string"
+	typeInt64   = "int64"
+)
 
 var ErrNotFound = fmt.Errorf("record does not exist")
+var ErrTypeMismatch = fmt.Errorf("type mismatch")
 
 type hashIndex map[string]int64
 
 type writeRequest struct {
 	key   string
-	value string
+	value []byte
+	typ   string
 	resp  chan error
 }
 
@@ -40,7 +46,7 @@ func (db *Db) writeLoop() {
 	for {
 		select {
 		case req := <-db.writeChan:
-			err := db.writeEntry(req.key, req.value)
+			err := db.writeEntry(req.key, req.value, req.typ)
 			req.resp <- err
 		case <-db.closeChan:
 			return
@@ -48,8 +54,12 @@ func (db *Db) writeLoop() {
 	}
 }
 
-func (db *Db) writeEntry(key, value string) error {
-	e := entry{key: key, value: value}
+func (db *Db) writeEntry(key string, value []byte, typ string) error {
+	e := entry{
+		key:   key,
+		value: value,
+		Type:  typeString,
+	}
 	data := e.Encode()
 
 	if db.segmentSizeLimit > 0 && db.outOffset+int64(len(data)) > db.segmentSizeLimit {
@@ -146,36 +156,73 @@ func (db *Db) Close() error {
 }
 
 func (db *Db) Get(key string) (string, error) {
+	data, typ, err := db.getWithType(key)
+	if err != nil {
+		return "", err
+	}
+	if typ != typeString {
+		return "", ErrTypeMismatch
+	}
+	return string(data), nil
+}
+
+func (db *Db) GetInt64(key string) (int64, error) {
+	data, typ, err := db.getWithType(key)
+	if err != nil {
+		return 0, err
+	}
+	if typ != typeInt64 {
+		return 0, ErrTypeMismatch
+	}
+	return int64(binary.LittleEndian.Uint64(data)), nil
+}
+
+func (db *Db) getWithType(key string) ([]byte, string, error) {
 	db.muIndex.RLock()
 	position, ok := db.index[key]
 	db.muIndex.RUnlock()
 	if !ok {
-		return "", ErrNotFound
+		return nil, "", ErrNotFound
 	}
 
 	file, err := os.Open(db.out.Name())
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
 	defer file.Close()
 
 	_, err = file.Seek(position, 0)
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
 
 	var record entry
 	if _, err = record.DecodeFromReader(bufio.NewReader(file)); err != nil {
-		return "", err
+		return nil, "", err
 	}
-	return record.value, nil
+	return record.value, record.Type, nil
 }
 
 func (db *Db) Put(key, value string) error {
 	resp := make(chan error)
 	db.writeChan <- writeRequest{
 		key:   key,
-		value: value,
+		value: []byte(value),
+		typ:   typeString,
+		resp:  resp,
+	}
+	return <-resp
+}
+
+func (db *Db) PutInt64(key string, value int64) error {
+	data := make([]byte, 8)
+	binary.LittleEndian.PutUint64(data, uint64(value))
+
+	resp := make(chan error)
+	db.writeChan <- writeRequest{
+		key:   key,
+		value: data,
+		typ:   typeInt64,
 		resp:  resp,
 	}
 	return <-resp
@@ -207,7 +254,7 @@ func (db *Db) rollSegment() error {
 	defer backupFile.Close()
 
 	reader := bufio.NewReader(backupFile)
-	latest := make(map[string]string)
+	latest := make(map[string]entry)
 
 	for {
 		var rec entry
@@ -220,15 +267,14 @@ func (db *Db) rollSegment() error {
 			_ = os.Rename(backupName, oldName)
 			return fmt.Errorf("decode error: %w", err)
 		}
-		latest[rec.key] = rec.value
+		latest[rec.key] = rec
 	}
 
 	db.out = newFile
 	db.outOffset = 0
 	db.index = make(hashIndex)
 
-	for k, v := range latest {
-		e := entry{key: k, value: v}
+	for k, e := range latest {
 		n, err := db.out.Write(e.Encode())
 		if err != nil {
 			_ = db.out.Close()
@@ -249,40 +295,4 @@ func (db *Db) Size() (int64, error) {
 		return 0, err
 	}
 	return info.Size(), nil
-}
-
-func (db *Db) PutInt64(key string, value int64) error {
-	val := map[string]interface{}{
-		"type":  "int64",
-		"value": value,
-	}
-	bytes, err := json.Marshal(val)
-	if err != nil {
-		return err
-	}
-	return db.Put(key, string(bytes))
-}
-
-func (db *Db) GetInt64(key string) (int64, error) {
-	str, err := db.Get(key)
-	if err != nil {
-		return 0, err
-	}
-
-	var decoded map[string]interface{}
-	err = json.Unmarshal([]byte(str), &decoded)
-	if err != nil {
-		return 0, err
-	}
-
-	if decoded["type"] != "int64" {
-		return 0, fmt.Errorf("wrong type: expected int64, got %v", decoded["type"])
-	}
-
-	valFloat, ok := decoded["value"].(float64)
-	if !ok {
-		return 0, fmt.Errorf("value is not a number")
-	}
-
-	return int64(valFloat), nil
 }

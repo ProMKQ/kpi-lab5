@@ -39,3 +39,14 @@ func TestGetLeastConnServer_NoHealthy(t *testing.T) {
 	server := getLeastConnServer()
 	assert.Nil(t, server)
 }
+
+func TestGetLeastConnServer_EqualConn(t *testing.T) {
+	serversPool = []*Server{
+		{Address: "server1", ConnCnt: 2, Healthy: true},
+		{Address: "server2", ConnCnt: 2, Healthy: true},
+	}
+
+	server := getLeastConnServer()
+	assert.NotNil(t, server)
+	assert.Contains(t, []string{"server1", "server2"}, server.Address)
+}
