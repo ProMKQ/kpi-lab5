@@ -18,7 +18,6 @@ const (
 )
 
 var ErrNotFound = fmt.Errorf("record does not exist")
-var ErrTypeMismatch = fmt.Errorf("type mismatch")
 
 type hashIndex map[string]int64
 
@@ -58,7 +57,7 @@ func (db *Db) writeEntry(key string, value []byte, typ string) error {
 	e := entry{
 		key:   key,
 		value: value,
-		Type:  typeString,
+		Type:  typ,
 	}
 	data := e.Encode()
 
@@ -161,7 +160,7 @@ func (db *Db) Get(key string) (string, error) {
 		return "", err
 	}
 	if typ != typeString {
-		return "", ErrTypeMismatch
+		return "", fmt.Errorf("type mismatch: expected %s, got %s", typeString, typ)
 	}
 	return string(data), nil
 }
@@ -172,7 +171,7 @@ func (db *Db) GetInt64(key string) (int64, error) {
 		return 0, err
 	}
 	if typ != typeInt64 {
-		return 0, ErrTypeMismatch
+		return 0, fmt.Errorf("type mismatch: expected %s, got %s", typeInt64, typ)
 	}
 	return int64(binary.LittleEndian.Uint64(data)), nil
 }

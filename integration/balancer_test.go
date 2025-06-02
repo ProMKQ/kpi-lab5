@@ -32,7 +32,7 @@ func TestBalancer(t *testing.T) {
 	for i := 0; i < requests; i++ {
 		go func() {
 			defer wg.Done()
-			resp, err := client.Get(fmt.Sprintf("%s/api/v1/some-data", baseAddress))
+			resp, err := client.Get(fmt.Sprintf("%s/api/v1/some-data?key=dmwteam", baseAddress))
 			require.NoError(t, err)
 			require.NotNil(t, resp)
 
@@ -58,7 +58,7 @@ func BenchmarkBalancer(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			resp, err := client.Get(fmt.Sprintf("%s/api/v1/some-data", baseAddress))
+			resp, err := client.Get(fmt.Sprintf("%s/api/v1/some-data?key=dmwteam", baseAddress))
 			if err != nil {
 				b.Error(err)
 				return

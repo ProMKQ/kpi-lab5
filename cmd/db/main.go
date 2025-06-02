@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/ProMKQ/kpi-lab5/datastore"
@@ -14,6 +15,10 @@ var db *datastore.Db
 
 func main() {
 	var err error
+	err = os.Mkdir("db-data", os.ModePerm)
+	if err != nil {
+		log.Fatal(err)
+	}
 	db, err = datastore.OpenWithSegmentLimit("db-data", 1024)
 	if err != nil {
 		log.Fatal(err)
